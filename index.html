@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+<!-- BBL-TUNEL-INICIO -->
+<script>
+// BBL-TUNEL: o link fixo do GitHub Pages redireciona sozinho para ?server=<tunel atual>.
+// O SERVIDOR.bat grava o tunel novo em tunel.json (git push) toda vez que abre um tunel.
+// Nao mexe se a URL ja tem ?server= (link do tunel) ou ?local=.
+(function () {
+  try {
+    var q = location.search || '';
+    if (/[?&](server|local)=/.test(q)) return;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'tunel.json?t=' + Date.now(), false);
+    xhr.send(null);
+    if (xhr.status !== 200) return;
+    var info = JSON.parse(xhr.responseText);
+    var host = String((info && info.server) || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (!/^[a-z0-9-]+\.trycloudflare\.com$/i.test(host)) return;
+    location.replace(location.pathname + (q ? q + '&' : '?') + 'server=' + host + location.hash);
+  } catch (e) { /* sem tunel: abre a pagina normal */ }
+})();
+</script>
+<!-- BBL-TUNEL-FIM -->
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>BadBoysLeague</title>
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <script>
+      // BBL-DEBUG-OVERLAY (opcional): abra a pagina com ?debug=1 para ver o console do navegador (Debug.Log do Unity, erros, WebSocket)
+      // escrito na propria tela. Serve para diagnosticar problemas no celular, onde nao ha console. Sem ?debug=1 nao faz nada.
+      (function () {
+        if (!/[?&]debug=1(&|$)/.test(location.search)) return;
+        var lines = [];
+        var box = null;
+        function ensureBox() {
+          if (box || !document.body) return;
+          box = document.createElement('pre');
+          box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:40vh;overflow:auto;margin:0;padding:4px 6px;z-index:99999;background:rgba(0,0,0,.75);color:#9f9;font:10px/1.3 monospace;white-space:pre-wrap;pointer-events:none';
+          document.body.appendChild(box);
+        }
+        function add(kind, args) {
+          var text = Array.prototype.map.call(args, function (a) {
+            try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); }
+          }).join(' ');
+          lines.push(new Date().toLocaleTimeString() + ' ' + kind + ' ' + text);
+          if (lines.length > 80) lines.shift();
+          ensureBox();
+          if (box) { box.textContent = lines.join('\n'); box.scrollTop = box.scrollHeight; }
+        }
+        ['log', 'warn', 'error'].forEach(function (kind) {
+          var original = console[kind];
+          console[kind] = function () { add(kind, arguments); original.apply(console, arguments); };
+        });
+        window.addEventListener('error', function (e) { add('ERR', [e.message]); });
+        window.addEventListener('unhandledrejection', function (e) { add('REJ', [String(e.reason)]); });
+        document.addEventListener('DOMContentLoaded', ensureBox);
+      })();
+    </script>
+    <script>
+      // BBL-MUTE
+      // Mute da pagina guardado no localStorage da ORIGEM (ex.: https://badboyzleague.github.io). O localStorage nao depende do
+      // que vem depois da barra nem do ?server=..., entao o mute vale para qualquer link do jogo nessa origem.
+      // (A pagina nao consegue ler o mute nativo da aba do navegador; por isso ha o botao proprio no canto da tela. Tecla M tambem.)
+      (function () {
+        var KEY = 'bbl_muted';
+        function load() { try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+        var muted = load();
+        var masters = [];
+        var btn = null;
+
+        var OrigConnect = AudioNode.prototype.connect;
+        function masterFor(ctx) {
+          if (!ctx.__bblMaster) {
+            var g = ctx.createGain();
+            g.gain.value = muted ? 0 : 1;
+            OrigConnect.call(g, ctx.destination);
+            ctx.__bblMaster = g;
+            masters.push(g);
+          }
+          return ctx.__bblMaster;
+        }
+        // Tudo que o Unity liga na saida de audio passa por um ganho mestre (0 quando mutado).
+        AudioNode.prototype.connect = function (dest) {
+          if (typeof AudioDestinationNode !== 'undefined' && dest instanceof AudioDestinationNode && this.context === dest.context
+              && this !== dest.context.__bblMaster) {
+            arguments[0] = masterFor(dest.context);
+          }
+          return OrigConnect.apply(this, arguments);
+        };
+
+        function apply() {
+          masters.forEach(function (g) { try { g.gain.value = muted ? 0 : 1; } catch (e) {} });
+          if (btn) { btn.textContent = muted ? '🔇' : '🔊'; btn.title = muted ? 'Som desligado (M)' : 'Som ligado (M)'; }
+        }
+        function set(v) {
+          muted = v;
+          try { localStorage.setItem(KEY, v ? '1' : '0'); } catch (e) {}
+          apply();
+        }
+        function buildButton() {
+          if (btn || !document.body) return;
+          btn = document.createElement('button');
+          btn.type = 'button';
+          btn.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99998;width:34px;height:34px;border:0;border-radius:17px;'
+            + 'background:rgba(0,0,0,.45);color:#fff;font-size:18px;line-height:34px;padding:0;cursor:pointer;opacity:.7';
+          btn.addEventListener('click', function (e) { e.stopPropagation(); set(!muted); });
+          document.body.appendChild(btn);
+          apply();
+        }
+        document.addEventListener('DOMContentLoaded', buildButton);
+        document.addEventListener('keydown', function (e) {
+          if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            var tag = (document.activeElement && document.activeElement.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            set(!muted);
+          }
+        });
+        // Mantem varias abas da mesma origem em sincronia.
+        window.addEventListener('storage', function (e) { if (e.key === KEY) { muted = load(); apply(); } });
+        window.__bblSetMuted = set;
+      })();
+    </script>
+    <script>
+      // BBL-BACKGROUND-LOOP
+      // O navegador PAUSA o requestAnimationFrame de aba minimizada/escondida, e o loop do Unity WebGL roda em cima dele:
+      // a aba escondida congelava (nao processava a troca de cena, nao criava o player, etc.) ate voltar ao foco.
+      // Aqui cada quadro pedido tambem e agendado num Web Worker (timers de worker nao sao pausados em segundo plano).
+      // Aba visivel: o requestAnimationFrame nativo roda normal (60 fps). Aba escondida: o Worker mantem o jogo a ~20 fps.
+      (function () {
+        var nativeRAF = window.requestAnimationFrame && window.requestAnimationFrame.bind(window);
+        var nativeCAF = window.cancelAnimationFrame && window.cancelAnimationFrame.bind(window);
+        if (!nativeRAF || !nativeCAF || typeof Worker === 'undefined') return;
+
+        var worker;
+        try {
+          var src = 'self.onmessage=function(e){var id=e.data;setTimeout(function(){self.postMessage(id);},50);};';
+          worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })));
+        } catch (err) {
+          return; // sem Worker (CSP restritiva): fica com o comportamento normal do navegador
+        }
+
+        var nextId = 1;
+        var pending = {};
+
+        function finish(id, entry, ts) {
+          entry.done = true;
+          delete pending[id];
+          if (entry.nativeId != null) { try { nativeCAF(entry.nativeId); } catch (e) {} }
+          entry.cb(ts);
+        }
+
+        window.requestAnimationFrame = function (cb) {
+          var id = nextId++;
+          var entry = { cb: cb, done: false, nativeId: null };
+          pending[id] = entry;
+          if (!document.hidden) {
+            entry.nativeId = nativeRAF(function (ts) { if (!entry.done) finish(id, entry, ts); });
+          }
+          worker.postMessage(id);
+          return id;
+        };
+
+        window.cancelAnimationFrame = function (id) {
+          var entry = pending[id];
+          if (!entry) { nativeCAF(id); return; }
+          entry.done = true;
+          delete pending[id];
+          if (entry.nativeId != null) { try { nativeCAF(entry.nativeId); } catch (e) {} }
+        };
+
+        worker.onmessage = function (e) {
+          var id = e.data, entry = pending[id];
+          if (!entry || entry.done) return;
+          // Aba visivel e o rAF nativo ainda vai disparar: deixa ele rodar o quadro.
+          if (entry.nativeId != null && !document.hidden) return;
+          finish(id, entry, performance.now());
+        };
+
+        // A aba acabou de ser escondida com um rAF nativo pendente (que nunca vai disparar): passa para o Worker.
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) return;
+          for (var k in pending) { if (!pending[k].done) worker.postMessage(+k); }
+        });
+
+        window.__bblBackgroundLoop = true;
+      })();
+    </script>
+    <script>
+      // BBL-AUTO-FULLSCREEN
+      // Celular (Android: Brave/Chrome/Firefox): esconde a barra de endereco e a barra inferior do navegador entrando em tela
+      // cheia no PRIMEIRO TOQUE (o navegador so permite tela cheia dentro de um gesto do usuario, nao da para forcar sem toque).
+      // Se o jogador sair da tela cheia, o proximo toque entra de novo. A orientacao fica LIVRE (nao trava em paisagem).
+      // iPhone/Safari nao tem API de tela cheia para paginas: la so adicionar a pagina a Tela de Inicio esconde as barras.
+      (function () {
+        var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+          || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (!mobile) return;
+        if (/[?&]fullscreen=0(&|$)/.test(location.search)) return;
+
+        function isFull() {
+          return !!(document.fullscreenElement || document.webkitFullscreenElement);
+        }
+        function enter() {
+          if (isFull()) return;
+          var el = document.documentElement;
+          var req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+          if (!req) return;
+          var p;
+          try { p = req.call(el, { navigationUI: 'hide' }); } catch (e) { return; }
+          // BBL-ORIENTACAO-LIVRE: NAO trava a orientacao. O jogador pode girar o celular (em pe / deitado) e o jogo se adapta.
+          // Se alguma versao antiga travou, libera (unlock so tem efeito em tela cheia e se houver trava ativa).
+          var unlockOrientation = function () {
+            try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+          };
+          if (p && p.then) { p.then(unlockOrientation).catch(function () {}); } else { unlockOrientation(); }
+        }
+        // touchend/click contam como gesto do usuario (touchstart nao).
+        ['touchend', 'click'].forEach(function (type) {
+          document.addEventListener(type, enter, { passive: true, capture: true });
+        });
+      })();
+    </script>
+    <script>
+      // BBL-TECLADO-MOBILE
+      // O Unity (WebGL mobile) mostra o texto digitado numa barra fixa colada no FUNDO da tela (position:fixed; bottom:0).
+      // No celular o teclado virtual cobre essa barra (a pagina nao encolhe, so o 'visual viewport'). Aqui a barra e levantada
+      // para ficar logo acima do teclado, e acompanha o teclado abrindo/fechando. Nao faz nada se nao houver barra de texto.
+      (function () {
+        var vv = window.visualViewport;
+        if (!vv) return;
+        function findBar() {
+          var list = document.querySelectorAll('div[style*="fixed"]');
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].querySelector('input,textarea')) return list[i];
+          }
+          return null;
+        }
+        function fix() {
+          var el = findBar();
+          if (!el) return;
+          var covered = window.innerHeight - (vv.height + vv.offsetTop);
+          el.style.bottom = Math.max(0, Math.round(covered)) + 'px';
+          el.style.zIndex = '2147483647';
+        }
+        vv.addEventListener('resize', fix);
+        vv.addEventListener('scroll', fix);
+        window.addEventListener('orientationchange', function () { setTimeout(fix, 300); });
+        document.addEventListener('focusin', function () {
+          [0, 100, 300, 600].forEach(function (ms) { setTimeout(fix, ms); });
+        }, true);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="unity-container" class="unity-desktop">
+      <canvas id="unity-canvas" width=1920 height=1080 tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"> </div>
+      <div id="unity-footer">
+        <div id="unity-logo-title-footer"></div>
+        <div id="unity-fullscreen-button"></div>
+        <div id="unity-build-title">BadBoysLeague</div>
+      </div>
+    </div>
+    <script>
+      var canvas = document.querySelector("#unity-canvas");
+
+      // Shows a temporary message banner/ribbon for a few seconds, or
+      // a permanent error message on top of the canvas if type=='error'.
+      // If type=='warning', a yellow highlight color is used.
+      // Modify or remove this function to customize the visually presented
+      // way that non-critical warnings and error messages are presented to the
+      // user.
+      function unityShowBanner(msg, type) {
+        var warningBanner = document.querySelector("#unity-warning");
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+        }
+        var div = document.createElement('div');
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type == 'error') div.style = 'background: red; padding: 10px;';
+        else {
+          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
+          setTimeout(function() {
+            warningBanner.removeChild(div);
+            updateBannerVisibility();
+          }, 5000);
+        }
+        updateBannerVisibility();
+      }
+
+      // BBL-ERROR-HANDLER
+      // O loader do Unity abre um alert() do navegador para QUALQUER erro de JavaScript ou promessa rejeitada na pagina
+      // (ex.: pointer lock recusado ao apertar ESC, extensoes do navegador, erros de rede). Aqui o erro vai para o console
+      // (F12) e so os casos realmente fatais (sem memoria / abort do WebAssembly) aparecem como faixa vermelha na propria
+      // pagina, sem popup modal. Retornar true diz ao loader que o erro ja foi tratado.
+      var bblFatalShown = false;
+      function bblErrorHandler(err, url, line) {
+        var msg = String(err && err.message ? err.message : err);
+        console.warn('[BBL] erro de pagina (sem popup): ' + msg + (url ? ' @ ' + url + ':' + line : ''));
+        var fatal = /Aborted\(|Cannot enlarge memory|out of memory|could not allocate memory|Invalid (array buffer|typed array) length|memory access out of bounds/i.test(msg);
+        if (fatal && !bblFatalShown) {
+          bblFatalShown = true;
+          unityShowBanner('Erro grave no jogo. Recarregue a pagina.', 'error');
+        }
+        return true;
+      }
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/ccc293e86b59421ffaa3f7534b3a67ce.loader.js";
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/ea164d5e7688c4eb7918f97c0c374753.data.unityweb",
+        frameworkUrl: buildUrl + "/6756ad0df46940b45ca6e4ec60faca29.framework.js.unityweb",
+        codeUrl: buildUrl + "/f8424dbd2c2e44bc1bc4e11f5f8dc70e.wasm.unityweb",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "Nowsk",
+        productName: "BadBoysLeague",
+        productVersion: "1.0",
+        showBanner: unityShowBanner,
+        errorHandler: bblErrorHandler,
+        // errorHandler: function(err, url, line) {
+        //    alert("error " + err + " occurred at line " + line);
+        //    // Return 'true' if you handled this error and don't want Unity
+        //    // to process it further, 'false' otherwise.
+        //    return true;
+        // },
+      };
+
+      // By default, Unity keeps WebGL canvas render target size matched with
+      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
+      // Set this to false if you want to decouple this synchronization from
+      // happening inside the engine, and you would instead like to size up
+      // the canvas DOM size and WebGL render target sizes yourself.
+      // config.matchWebGLToCanvasSize = false;
+
+      // If you would like all file writes inside Unity Application.persistentDataPath
+      // directory to automatically persist so that the contents are remembered when
+      // the user revisits the site the next time, uncomment the following line:
+      // config.autoSyncPersistentDataPath = true;
+      // This autosyncing is currently not the default behavior to avoid regressing
+      // existing user projects that might rely on the earlier manual
+      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
+      // expected to change.
+
+      // iPadOS 13+ no Safari se identifica como "Macintosh", mas tem tela de toque.
+      var isMobileBrowser = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (isMobileBrowser) {
+        // Mobile device style: fill the whole browser client area with the game canvas:
+
+        var meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=yes, viewport-fit=cover';
+        document.getElementsByTagName('head')[0].appendChild(meta);
+        document.querySelector("#unity-container").className = "unity-mobile";
+        canvas.className = "unity-mobile";
+        document.body.classList.add("bbl-mobile");
+
+        // iOS Safari: bloqueia zoom por pinça/duplo toque, pull-to-refresh e menu de contexto durante o jogo.
+        ["gesturestart", "gesturechange", "gestureend"].forEach(function (type) {
+          document.addEventListener(type, function (e) { e.preventDefault(); });
+        });
+        document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+        document.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        // To lower canvas resolution on mobile devices to gain some
+        // performance, uncomment the following line:
+        // iPhone tem devicePixelRatio 3: limitar a 2 economiza bastante GPU/memória (o Safari fecha a aba se faltar memória).
+        config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+
+      } else {
+        // Desktop: o canvas preenche 100% da janela do navegador (sem tamanho fixo em px).
+        // O Unity acompanha o redimensionamento da janela e o zoom do navegador sozinho.
+        document.querySelector("#unity-container").className = "unity-fill";
+        canvas.className = "unity-fill";
+        // Telas HiDPI (125%/150%/200%): limita a resolucao interna pra nao pesar a GPU.
+        config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      }
+
+      document.querySelector("#unity-loading-bar").style.display = "block";
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = () => {
+        createUnityInstance(canvas, config, (progress) => {
+          document.querySelector("#unity-progress-bar-full").style.width = 100 * progress + "%";
+              }).then((unityInstance) => {
+                document.querySelector("#unity-loading-bar").style.display = "none";
+                document.querySelector("#unity-fullscreen-button").onclick = () => {
+                  unityInstance.SetFullscreen(1);
+                };
+
+              }).catch((message) => {
+                console.error(message);
+                unityShowBanner(String(message), 'error');
+              });
+            };
+
+      document.body.appendChild(script);
+
+    </script>
+  </body>
+</html>
